@@ -1122,7 +1122,7 @@ def prikazi_stubice_sa_vrednostima(df_graf, x, y, naslov=""):
     )
 
     fig.update_layout(
-        title=dict(text=naslov, x=0.5, font=dict(size=22, color="white")),
+        title=dict(text=naslov, x=0.01, xanchor="left", font=dict(size=22, color="white")),
         height=430,
         margin=dict(l=20, r=20, t=60, b=90),
         plot_bgcolor="rgba(0,0,0,0)",
@@ -1185,7 +1185,7 @@ def prikazi_scrap_grafikon(df_scrap, naslov="SCRAP"):
         )
 
     fig.update_layout(
-        title=dict(text=naslov, x=0.5, font=dict(size=28, color="white")),
+        title=dict(text=naslov, x=0.01, xanchor="left", font=dict(size=28, color="white")),
         height=430,
         margin=dict(l=20, r=20, t=70, b=70),
         plot_bgcolor="rgba(64,64,64,0.95)",
@@ -1766,8 +1766,9 @@ def prikazi_kpi_karticu(naslov, df_kpi, iskljucena=False):
 
         fig.update_layout(
             title=dict(
-                text=f"KPI vizuelni prikaz — {naslov}",
-                x=0.5,
+                text=f"KPI globalni — {naslov}",
+                x=0.01,
+                xanchor="left",
                 font=dict(size=22, color="#F8FAFC")
             ),
             height=420 if tip != "Gauge" else 520,
@@ -3067,6 +3068,32 @@ st.markdown(
     section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(7) p::before { background:#f9a8d4; }
     section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(8) p::before { background:#fde68a; }
 
+
+    /* Naslovi grafikona i kartica: levo poravnati i bez odsecanja */
+    .neo-card,
+    .reason-card,
+    .summary-card,
+    .machine-card {
+        text-align: left !important;
+    }
+    .metric-label-modern,
+    .metric-value-modern,
+    .metric-sub-modern,
+    .machine-title,
+    .reason-title,
+    .reason-sub,
+    h1, h2, h3, h4,
+    [data-testid="stHeading"] {
+        text-align: left !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: normal !important;
+    }
+    [data-testid="stPlotlyChart"] {
+        overflow: visible !important;
+    }
+
     @media (max-width: 1024px) {
         section[data-testid="stSidebar"] {
             width: 230px !important;
@@ -3124,7 +3151,7 @@ def _summary_realization_sources(df_obj, selected_processes):
 
 def _dark_fig(fig, title=None, height=420):
     fig.update_layout(
-        title=dict(text=title or "", x=0.5, font=dict(size=22, color="#F8FAFC")),
+        title=dict(text=title or "", x=0.01, xanchor="left", font=dict(size=22, color="#F8FAFC")),
         height=height,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#201f1f",
@@ -3224,7 +3251,7 @@ def prikazi_gauge_dashboard(naslov, df_kpi):
                 threshold=dict(line=dict(color="#F8FAFC", width=3), thickness=0.75, value=100),
             )
         ))
-    st.plotly_chart(_dark_fig(fig, f"KPI gauge prikaz — {naslov}", height=560), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(_dark_fig(fig, f"KPI globalni — {naslov}", height=560), use_container_width=True, config={"displayModeBar": False})
 
 
 # ============================================================
@@ -3827,7 +3854,7 @@ elif aktivna_sekcija == "Zastoji":
             prikazi_dark_dataframe(dfz)
 
 elif aktivna_sekcija == "KPI":
-    st.subheader("📈 KPI — gauge prikaz")
+    st.subheader("📈 KPI — globalni")
     prikazi_gauge_dashboard("Ukupno filtrirano", df_ukupno_filter)
     st.markdown("### KPI po procesu")
     for proces in [p for p in KPI_PROCESI if p in df_ukupno_filter["Proces"].unique()]:
