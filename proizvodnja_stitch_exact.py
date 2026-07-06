@@ -3030,6 +3030,43 @@ st.markdown(
         border-color: var(--outline-variant) !important;
     }
 
+
+    section[data-testid="stSidebar"] [role="radiogroup"] label {
+        border: 1px dashed var(--outline-variant) !important;
+        border-left: 1px dashed var(--outline-variant) !important;
+        border-radius: 6px !important;
+        margin: 0 12px 8px 12px !important;
+        min-height: 42px !important;
+        padding: 9px 12px !important;
+        background: transparent !important;
+        position: relative !important;
+    }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+        background: var(--surface-high) !important;
+        border-color: var(--primary) !important;
+    }
+    section[data-testid="stSidebar"] [role="radiogroup"] label > div:first-child {
+        display: none !important;
+    }
+    section[data-testid="stSidebar"] [role="radiogroup"] label p::before {
+        content: "";
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        margin-right: 10px;
+        vertical-align: 1px;
+        background: #4edea3;
+        box-shadow: 0 0 8px currentColor;
+    }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(2) p::before { background:#ffb4ab; }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(3) p::before { background:#ffb95f; }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(4) p::before { background:#adc6ff; }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(5) p::before { background:#c6b6ff; }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(6) p::before { background:#7dd3fc; }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(7) p::before { background:#f9a8d4; }
+    section[data-testid="stSidebar"] [role="radiogroup"] label:nth-child(8) p::before { background:#fde68a; }
+
     @media (max-width: 1024px) {
         section[data-testid="stSidebar"] {
             width: 230px !important;
@@ -3195,14 +3232,14 @@ def prikazi_gauge_dashboard(naslov, df_kpi):
 # ============================================================
 
 sekcije = [
-    "📊 Dnevni pregled",
-    "❌ NOK razlozi",
-    "⏱️ Zastoji",
-    "📈 KPI",
-    "📊 Grafički prikaz",
-    "🧱 SCRAP",
-    "🏭 Top uzroci po mašini",
-    "📄 Tabele",
+    "Dnevni pregled",
+    "NOK razlozi",
+    "Zastoji",
+    "KPI",
+    "Grafički prikaz",
+    "SCRAP",
+    "Top uzroci po mašini",
+    "Tabele",
 ]
 
 st.sidebar.markdown("""
@@ -3490,11 +3527,48 @@ with col_c:
 with col_d:
     prikazi_metric_card("NOK", _fmt_num(_safe_sum(df_nok_filter, "Komada_iz_note")), "po notes-ima", "neo-card-purple")
 
+
+def _bar_chart(df_plot, x, y, title, horizontal=False, color="#4edea3"):
+    if df_plot is None or df_plot.empty:
+        st.info("Nema podataka za prikaz.")
+        return
+    if horizontal:
+        fig = go.Figure(go.Bar(x=df_plot[y], y=df_plot[x], orientation="h", text=df_plot[y].apply(_fmt_num), textposition="auto", marker_color=color))
+        fig.update_yaxes(autorange="reversed")
+    else:
+        fig = go.Figure(go.Bar(x=df_plot[x], y=df_plot[y], text=df_plot[y].apply(_fmt_num), textposition="outside", marker_color=color))
+    st.plotly_chart(_dark_fig(fig, title), use_container_width=True, config={"displayModeBar": False})
+
+
+def _ok_nok_chart(ok, nok, title):
+    d = pd.DataFrame({"Tip":["OK","NOK"], "Vrednost":[ok,nok]})
+    fig = go.Figure(go.Bar(x=d["Tip"], y=d["Vrednost"], text=d["Vrednost"].apply(_fmt_num), textposition="outside", marker_color=["#4edea3","#ffb4ab"]))
+    st.plotly_chart(_dark_fig(fig, title), use_container_width=True, config={"displayModeBar": False})
+
+
+def _pareto(df_src, category, value, title):
+    if df_src is None or df_src.empty:
+        st.info("Nema podataka za Pareto prikaz.")
+        return
+    p = df_src.groupby(category, as_index=False)[value].sum().sort_values(value, ascending=False)
+    p = p[p[value] > 0].head(12).copy()
+    if p.empty:
+        st.info("Nema pozitivnih vrednosti za Pareto prikaz.")
+        return
+    total = p[value].sum()
+    p["Kumulativno"] = p[value].cumsum()/total*100
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=p[category], y=p[value], name=value, text=p[value].apply(_fmt_num), textposition="outside", marker_color="#4edea3"))
+    fig.add_trace(go.Scatter(x=p[category], y=p["Kumulativno"], name="Kumulativno %", yaxis="y2", mode="lines+markers", line=dict(color="#ffb95f", width=3)))
+    fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0,110], ticksuffix="%"), legend=dict(orientation="h"))
+    st.plotly_chart(_dark_fig(fig, title, height=500), use_container_width=True, config={"displayModeBar": False})
+    prikazi_dark_dataframe(p.rename(columns={value:"Vrednost", "Kumulativno":"Kumulativno %"}))
+
 # ============================================================
 # SEKCIJE
 # ============================================================
 
-if aktivna_sekcija == "📊 Dnevni pregled":
+if aktivna_sekcija == "Dnevni pregled":
     st.subheader("📌 Ukupan pregled proizvodnje")
     st.caption("Ako je izabran tačno jedan proces, realizacija prati taj proces. U ostalim slučajevima STATOR ide iz DMC, a ROTOR iz ROTOR procesa. NOK ostaje iz svih procesa.")
 
@@ -3520,44 +3594,113 @@ if aktivna_sekcija == "📊 Dnevni pregled":
         st.plotly_chart(_dark_fig(fig, "Realizacija po procesu"), use_container_width=True, config={"displayModeBar": False})
         prikazi_dark_dataframe(prikaz)
 
-elif aktivna_sekcija == "❌ NOK razlozi":
-    st.subheader("❌ NOK razlozi iz notes-a")
+elif aktivna_sekcija == "NOK razlozi":
+    st.subheader("NOK razlozi iz notes-a")
     if df_nok_filter.empty:
         st.info("Nema NOK notes podataka za izabrane filtere.")
     else:
-        top_nok = df_nok_filter.groupby("Razlog", as_index=False)["Komada_iz_note"].sum().sort_values("Komada_iz_note", ascending=False).head(20)
-        fig = go.Figure(go.Bar(x=top_nok["Komada_iz_note"], y=top_nok["Razlog"], orientation="h", text=top_nok["Komada_iz_note"].apply(lambda x: f"{x:,.0f}".replace(",", ".")), textposition="auto"))
-        fig.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(_dark_fig(fig, "Top NOK razlozi"), use_container_width=True, config={"displayModeBar": False})
-        detalji = df_nok_filter[["Datum", "Masina", "Smena", "Proizvod", "Razlog", "Komada_iz_note", "Originalna_stavka"]].copy()
-        detalji["Datum"] = detalji["Datum"].dt.strftime("%d.%m.%Y")
-        prikazi_dark_dataframe(detalji)
+        dfn = df_nok_filter.copy()
+        dfn["Tip_proizvoda"] = dfn.get("Tip_proizvoda", "NEPOZNATO").fillna("NEPOZNATO")
+        stator = dfn[dfn["Tip_proizvoda"].astype(str).str.contains("STATOR", case=False, na=False)]
+        rotor = dfn[dfn["Tip_proizvoda"].astype(str).str.contains("ROTOR", case=False, na=False)]
+        c1,c2,c3,c4=st.columns(4)
+        with c1: prikazi_metric_card("NOK ukupno", _fmt_num(_safe_sum(dfn,"Komada_iz_note")), "iz notes-a")
+        with c2: prikazi_metric_card("NOK STATOR", _fmt_num(_safe_sum(stator,"Komada_iz_note")), "iz notes-a")
+        with c3: prikazi_metric_card("NOK ROTOR", _fmt_num(_safe_sum(rotor,"Komada_iz_note")), "iz notes-a")
+        with c4: prikazi_metric_card("Broj razloga", str(dfn["Razlog"].nunique()), "različitih")
 
-elif aktivna_sekcija == "⏱️ Zastoji":
-    st.subheader("⏱️ Zastoji iz notes-a")
+        st.markdown("### NOK razlozi odvojeno: STATOR / ROTOR")
+        a,b=st.columns(2)
+        with a:
+            st.markdown("#### STATOR NOK razlozi")
+            zs=stator.groupby("Razlog",as_index=False)["Komada_iz_note"].sum().sort_values("Komada_iz_note",ascending=False)
+            _bar_chart(zs.head(15),"Razlog","Komada_iz_note","STATOR NOK razlozi",True,"#4edea3")
+            prikazi_dark_dataframe(zs)
+        with b:
+            st.markdown("#### ROTOR NOK razlozi")
+            zr=rotor.groupby("Razlog",as_index=False)["Komada_iz_note"].sum().sort_values("Komada_iz_note",ascending=False)
+            _bar_chart(zr.head(15),"Razlog","Komada_iz_note","ROTOR NOK razlozi",True,"#adc6ff")
+            prikazi_dark_dataframe(zr)
+
+        st.markdown("### NOK po mašini, proizvodu i razlogu")
+        det=dfn.groupby(["Masina","Tip_proizvoda","Razlog"],as_index=False)["Komada_iz_note"].sum().sort_values(["Masina","Tip_proizvoda","Komada_iz_note"],ascending=[True,True,False])
+        prikazi_dark_dataframe(det)
+
+        st.markdown("### NOK analiza po procesu")
+        for proc in sorted(dfn["Proces"].dropna().unique()):
+            base=df_ukupno_filter[df_ukupno_filter["Proces"]==proc]
+            n=dfn[dfn["Proces"]==proc]
+            ok=_safe_sum(base,"OK_STATOR")+_safe_sum(base,"OK_ROTOR")
+            nok=_safe_sum(base,"NOK_STATOR")+_safe_sum(base,"NOK_ROTOR")
+            l,r=st.columns(2)
+            with l: _ok_nok_chart(ok,nok,f"Odnos OK i NOK — {proc}")
+            with r:
+                pm=n.groupby("Masina",as_index=False)["Komada_iz_note"].sum().sort_values("Komada_iz_note",ascending=False)
+                _bar_chart(pm,"Masina","Komada_iz_note",f"NOK po mašini — {proc}",True,"#ffb4ab")
+
+        st.markdown("### NOK analiza po projektu")
+        for proj in sorted(dfn["Projekat"].dropna().unique()):
+            base=df_ukupno_filter[df_ukupno_filter["Projekat"]==proj]
+            n=dfn[dfn["Projekat"]==proj]
+            ok=_safe_sum(base,"OK_STATOR")+_safe_sum(base,"OK_ROTOR")
+            nok=_safe_sum(base,"NOK_STATOR")+_safe_sum(base,"NOK_ROTOR")
+            l,r=st.columns(2)
+            with l: _ok_nok_chart(ok,nok,f"Odnos OK i NOK — {proj}")
+            with r:
+                pm=n.groupby("Masina",as_index=False)["Komada_iz_note"].sum().sort_values("Komada_iz_note",ascending=False)
+                _bar_chart(pm,"Masina","Komada_iz_note",f"NOK po mašini — {proj}",True,"#ffb95f")
+
+        st.markdown("### Pareto NOK razloga")
+        _pareto(dfn,"Razlog","Komada_iz_note","Pareto NOK razloga")
+        with st.expander("Prikaži sve NOK notes stavke"):
+            prikazi_dark_dataframe(dfn)
+
+elif aktivna_sekcija == "Zastoji":
+    st.subheader("Zastoji iz notes-a")
     if df_zastoji_filter.empty:
         st.info("Nema podataka o zastojima za izabrane filtere.")
     else:
-        top_stop = df_zastoji_filter.groupby("Razlog", as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note", ascending=False).head(20)
-        fig = go.Figure(go.Bar(x=top_stop["Minuta_iz_note"], y=top_stop["Razlog"], orientation="h", text=top_stop["Minuta_iz_note"].apply(lambda x: f"{x:,.0f}".replace(",", ".")), textposition="auto"))
-        fig.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(_dark_fig(fig, "Top razlozi zastoja"), use_container_width=True, config={"displayModeBar": False})
+        dfz=df_zastoji_filter.copy()
+        c1,c2,c3=st.columns(3)
+        with c1: prikazi_metric_card("Ukupno minuta", _fmt_num(_safe_sum(dfz,"Minuta_iz_note")), "zastoja")
+        with c2: prikazi_metric_card("Broj razloga", str(dfz["Razlog"].nunique()), "različitih")
+        with c3: prikazi_metric_card("Broj mašina", str(dfz["Masina"].nunique()), "sa zastojem")
 
-        for _, r in top_stop.head(12).iterrows():
-            st.markdown(
-                f"""
-                <div class="reason-card">
-                    <div class="reason-title">{_html_escape(r['Razlog'])}</div>
-                    <div class="reason-sub">Trajanje: {_fmt_num(r['Minuta_iz_note'])} min</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        detalji = df_zastoji_filter[["Datum", "Masina", "Smena", "Razlog", "Minuta_iz_note", "Originalna_stavka"]].copy()
-        detalji["Datum"] = detalji["Datum"].dt.strftime("%d.%m.%Y")
-        prikazi_dark_dataframe(detalji)
+        zbir=dfz.groupby("Razlog",as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note",ascending=False)
+        st.markdown("### Ukupni zastoji po razlogu")
+        _bar_chart(zbir.head(15),"Razlog","Minuta_iz_note","Ukupni zastoji po razlogu",True,"#ffb95f")
+        prikazi_dark_dataframe(zbir)
 
-elif aktivna_sekcija == "📈 KPI":
+        st.markdown("### Zastoji po procesu")
+        proc=dfz.groupby("Proces",as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note",ascending=False)
+        _bar_chart(proc,"Proces","Minuta_iz_note","Zastoji po procesu",False,"#4edea3")
+        prikazi_dark_dataframe(proc)
+
+        st.markdown("### Zastoji po projektu")
+        proj=dfz.groupby("Projekat",as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note",ascending=False)
+        _bar_chart(proj,"Projekat","Minuta_iz_note","Zastoji po projektu",False,"#adc6ff")
+        prikazi_dark_dataframe(proj)
+
+        st.markdown("### Zastoji po mašini")
+        mas=dfz.groupby("Masina",as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note",ascending=False)
+        _bar_chart(mas,"Masina","Minuta_iz_note","Zastoji po mašini",True,"#ffb4ab")
+        prikazi_dark_dataframe(mas)
+
+        st.markdown("### Detaljno po mašinama")
+        for masina in sorted(dfz["Masina"].dropna().unique()):
+            mz=dfz[dfz["Masina"]==masina].copy()
+            with st.expander(f"{masina} — {_fmt_num(_safe_sum(mz,'Minuta_iz_note'))} min"):
+                cols=[c for c in ["Datum","Smena","Razlog","Minuta_iz_note","Originalna_stavka"] if c in mz.columns]
+                detalj=mz[cols].copy()
+                if "Datum" in detalj.columns: detalj["Datum"]=detalj["Datum"].dt.strftime("%d.%m.%Y")
+                prikazi_dark_dataframe(detalj)
+
+        st.markdown("### Pareto uzroka zastoja")
+        _pareto(dfz,"Razlog","Minuta_iz_note","Pareto uzroka zastoja")
+        with st.expander("Prikaži sve stavke zastoja iz notes-a"):
+            prikazi_dark_dataframe(dfz)
+
+elif aktivna_sekcija == "KPI":
     st.subheader("📈 KPI — gauge prikaz")
     prikazi_gauge_dashboard("Ukupno filtrirano", df_ukupno_filter)
     st.markdown("### KPI po procesu")
@@ -3565,8 +3708,8 @@ elif aktivna_sekcija == "📈 KPI":
         with st.container():
             prikazi_gauge_dashboard(proces, df_ukupno_filter[df_ukupno_filter["Proces"] == proces])
 
-elif aktivna_sekcija == "📊 Grafički prikaz":
-    st.subheader("📊 Grafički prikaz")
+elif aktivna_sekcija == "Grafički prikaz":
+    st.subheader("Grafički prikaz")
     if df_filter.empty:
         st.info("Nema podataka za izabrane filtere.")
     else:
@@ -3587,8 +3730,8 @@ elif aktivna_sekcija == "📊 Grafički prikaz":
         st.plotly_chart(_dark_fig(fig, "Trend po danima"), use_container_width=True, config={"displayModeBar": False})
         prikazi_dark_dataframe(trend[["Datum_txt", "Realizacija", "NOK", "Stops_min"]].rename(columns={"Datum_txt": "Datum", "Stops_min": "Stops/min"}))
 
-elif aktivna_sekcija == "🧱 SCRAP":
-    st.subheader("🧱 SCRAP")
+elif aktivna_sekcija == "SCRAP":
+    st.subheader("SCRAP")
     if df_ukupno_filter.empty:
         st.info("Nema podataka za SCRAP.")
     else:
@@ -3600,8 +3743,8 @@ elif aktivna_sekcija == "🧱 SCRAP":
         st.plotly_chart(_dark_fig(fig, "NOK po procesu"), use_container_width=True, config={"displayModeBar": False})
         prikazi_dark_dataframe(scrap[["Proces", "OK", "NOK", "Scrap %"]])
 
-elif aktivna_sekcija == "🏭 Top uzroci po mašini":
-    st.subheader("🏭 Top uzroci po mašini")
+elif aktivna_sekcija == "Top uzroci po mašini":
+    st.subheader("Top uzroci po mašini")
     if df_zastoji_filter.empty and df_nok_filter.empty:
         st.info("Nema notes podataka za izabrane filtere.")
     else:
@@ -3625,8 +3768,8 @@ elif aktivna_sekcija == "🏭 Top uzroci po mašini":
                         st.markdown(f"<div class='reason-sub'>{_html_escape(r['Razlog'])}: <b>{_fmt_num(r['Komada_iz_note'])} kom</b></div>", unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
-elif aktivna_sekcija == "📄 Tabele":
-    st.subheader("📄 Tabele")
+elif aktivna_sekcija == "Tabele":
+    st.subheader("Tabele")
     st.markdown("### Dnevna tabela")
     dnevna = df_filter.copy()
     if "Datum" in dnevna.columns:
