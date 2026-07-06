@@ -3564,6 +3564,135 @@ def _pareto(df_src, category, value, title):
     st.plotly_chart(_dark_fig(fig, title, height=500), use_container_width=True, config={"displayModeBar": False})
     prikazi_dark_dataframe(p.rename(columns={value:"Vrednost", "Kumulativno":"Kumulativno %"}))
 
+
+
+def _machine_header_card(name, total_minutes, color_index=0):
+    colors = ["#4edea3", "#ffb95f", "#adc6ff", "#ffb4ab", "#9b8cff", "#64d8cb"]
+    accent = colors[color_index % len(colors)]
+    st.markdown(
+        f"""
+        <div style="border:1px solid {accent}66;border-radius:18px;padding:14px 16px;margin-bottom:12px;background:linear-gradient(135deg,{accent}22,rgba(20,25,35,.92));">
+            <div style="font-size:22px;font-weight:800;color:#f8fafc;">{_html_escape(name)}</div>
+        </div>
+        <div style="border:1px solid #334155;border-radius:14px;padding:14px 16px;margin-bottom:12px;background:rgba(2,6,23,.90);">
+            <div style="font-size:14px;color:#cbd5e1;font-weight:700;">Ukupno minuta zastoja</div>
+            <div style="font-size:30px;color:#fff;font-weight:900;margin-top:6px;">{_fmt_num(total_minutes)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_machine_detail_grid(dfz):
+    machines = sorted(dfz["Masina"].dropna().unique())
+    for start in range(0, len(machines), 3):
+        cols = st.columns(3)
+        for offset, machine in enumerate(machines[start:start+3]):
+            with cols[offset]:
+                m = dfz[dfz["Masina"] == machine].copy()
+                _machine_header_card(machine, _safe_sum(m, "Minuta_iz_note"), start + offset)
+                cols_show = [c for c in ["Datum", "Smena", "Minuta_iz_note", "Razlog", "Originalna_stavka"] if c in m.columns]
+                detail = m[cols_show].copy()
+                if "Datum" in detail.columns:
+                    detail["Datum"] = detail["Datum"].dt.strftime("%d.%m.%Y")
+                detail = detail.rename(columns={"Minuta_iz_note":"Min", "Originalna_stavka":"Originalni unos"})
+                st.dataframe(detail, use_container_width=True, hide_index=True, height=310)
+
+
+def _process_machine_summary(df_proc):
+    if df_proc.empty:
+        return pd.DataFrame()
+    cols = ["Plan_STATOR","Realizacija_STATOR","OK_STATOR","NOK_STATOR","Plan_ROTOR","Realizacija_ROTOR","OK_ROTOR","NOK_ROTOR"]
+    for c in cols:
+        if c not in df_proc.columns:
+            df_proc[c] = 0
+    out = df_proc.groupby("Masina", as_index=False)[cols].sum()
+    out["Plan_UKUPNO"] = out["Plan_STATOR"] + out["Plan_ROTOR"]
+    out["Realizacija_UKUPNO"] = out["Realizacija_STATOR"] + out["Realizacija_ROTOR"]
+    out["Realizacija_pct"] = out.apply(lambda r: procenat(r["Realizacija_UKUPNO"], r["Plan_UKUPNO"]), axis=1)
+    return out
+
+
+def _grouped_bar(df_plot, x, ys, title):
+    if df_plot.empty:
+        st.info("Nema podataka za prikaz.")
+        return
+    fig = go.Figure()
+    palette = ["#4edea3", "#adc6ff", "#ffb95f", "#ffb4ab", "#9b8cff"]
+    for i, y in enumerate(ys):
+        if y in df_plot.columns:
+            fig.add_trace(go.Bar(x=df_plot[x], y=df_plot[y], name=y.replace("_", " "), marker_color=palette[i % len(palette)]))
+    fig.update_layout(barmode="group", xaxis_tickangle=-25)
+    st.plotly_chart(_dark_fig(fig, title, height=480), use_container_width=True, config={"displayModeBar":False})
+
+
+def _plan_vs_realization(df_plot, plan_col, real_col, title):
+    if df_plot.empty:
+        st.info("Nema podataka za prikaz.")
+        return
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=df_plot["Masina"], y=df_plot[plan_col], name="Plan", marker_color="#86948a"))
+    fig.add_trace(go.Bar(x=df_plot["Masina"], y=df_plot[real_col], name="Realizacija", marker_color="#4edea3"))
+    fig.update_layout(barmode="group", xaxis_tickangle=-25)
+    st.plotly_chart(_dark_fig(fig, title, height=460), use_container_width=True, config={"displayModeBar":False})
+
+
+def _render_process_graphics(df_all, process, display_name):
+    d = df_all[df_all["Proces"].astype(str).str.upper() == process.upper()].copy()
+    if d.empty:
+        return
+    st.markdown(f"## {display_name}")
+    s = _process_machine_summary(d)
+    _grouped_bar(s, "Masina", ["Plan_STATOR","Realizacija_STATOR","OK_STATOR","NOK_STATOR"], f"{display_name} — STATOR po mašini")
+    _plan_vs_realization(s, "Plan_STATOR", "Realizacija_STATOR", f"Realizacija u odnosu na plan — STATOR — {display_name}")
+    _grouped_bar(s, "Masina", ["Plan_ROTOR","Realizacija_ROTOR","OK_ROTOR","NOK_ROTOR"], f"{display_name} — ROTOR po mašini")
+    _plan_vs_realization(s, "Plan_ROTOR", "Realizacija_ROTOR", f"Realizacija u odnosu na plan — ROTOR — {display_name}")
+    with st.expander(f"Prikaži tabelu — {display_name}"):
+        t=s.copy(); t["Realizacija_pct"] = t["Realizacija_pct"].apply(format_proc)
+        prikazi_dark_dataframe(t)
+
+
+def _render_scrap_sections(df_all):
+    d = df_all.copy()
+    for c in ["OK_STATOR","OK_ROTOR","NOK_STATOR","NOK_ROTOR"]:
+        if c not in d.columns: d[c]=0
+        d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
+    d["OK"] = d["OK_STATOR"] + d["OK_ROTOR"]
+    d["NOK"] = d["NOK_STATOR"] + d["NOK_ROTOR"]
+    for group_col, label in [("Projekat","projektu"),("Proces","procesu")]:
+        g=d.groupby(group_col, as_index=False)[["OK","NOK"]].sum()
+        g["Scrap %"] = g.apply(lambda r: procenat(r["NOK"], r["OK"]+r["NOK"]), axis=1)
+        st.markdown(f"### SCRAP po {label}")
+        fig=go.Figure()
+        fig.add_trace(go.Bar(x=g[group_col], y=g["NOK"], name="NOK", text=g["Scrap %"].apply(_fmt_pct_local), textposition="outside", marker_color="#ffb4ab"))
+        st.plotly_chart(_dark_fig(fig, f"SCRAP po {label}", height=450), use_container_width=True, config={"displayModeBar":False})
+        prikazi_dark_dataframe(g)
+
+
+def _top3_horizontal(df_source, group_filter_col, group_value, title):
+    d=df_source[df_source[group_filter_col]==group_value]
+    if d.empty: return
+    t=d.groupby("Razlog",as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note",ascending=False).head(3)
+    fig=go.Figure(go.Bar(x=t["Minuta_iz_note"], y=t["Razlog"], orientation="h", text=t["Minuta_iz_note"].apply(_fmt_num), textposition="auto", marker_color="#4edea3"))
+    fig.update_layout(yaxis=dict(autorange="reversed"))
+    st.plotly_chart(_dark_fig(fig,title,height=300),use_container_width=True,config={"displayModeBar":False})
+
+
+def _render_top_causes_by_process(dfz):
+    for proc in sorted(dfz["Proces"].dropna().unique()):
+        dp=dfz[dfz["Proces"]==proc]
+        st.markdown(f"## {proc}")
+        overall=dp.groupby("Razlog",as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note",ascending=False).head(3)
+        fig=go.Figure(go.Bar(x=overall["Minuta_iz_note"],y=overall["Razlog"],orientation="h",text=overall["Minuta_iz_note"].apply(_fmt_num),textposition="auto",marker_color="#ffb95f"))
+        fig.update_layout(yaxis=dict(autorange="reversed"))
+        st.plotly_chart(_dark_fig(fig,f"Top 3 uzroka ukupno — {proc}",height=320),use_container_width=True,config={"displayModeBar":False})
+        machines=sorted(dp["Masina"].dropna().unique())
+        for start in range(0,len(machines),3):
+            cols=st.columns(3)
+            for i,m in enumerate(machines[start:start+3]):
+                with cols[i]:
+                    _top3_horizontal(dp,"Masina",m,f"Top 3 — {m}")
+
 # ============================================================
 # SEKCIJE
 # ============================================================
@@ -3687,13 +3816,10 @@ elif aktivna_sekcija == "Zastoji":
         prikazi_dark_dataframe(mas)
 
         st.markdown("### Detaljno po mašinama")
-        for masina in sorted(dfz["Masina"].dropna().unique()):
-            mz=dfz[dfz["Masina"]==masina].copy()
-            with st.expander(f"{masina} — {_fmt_num(_safe_sum(mz,'Minuta_iz_note'))} min"):
-                cols=[c for c in ["Datum","Smena","Razlog","Minuta_iz_note","Originalna_stavka"] if c in mz.columns]
-                detalj=mz[cols].copy()
-                if "Datum" in detalj.columns: detalj["Datum"]=detalj["Datum"].dt.strftime("%d.%m.%Y")
-                prikazi_dark_dataframe(detalj)
+        _render_machine_detail_grid(dfz)
+
+        st.markdown("### Top 3 uzroka po mašini i procesu")
+        _render_top_causes_by_process(dfz)
 
         st.markdown("### Pareto uzroka zastoja")
         _pareto(dfz,"Razlog","Minuta_iz_note","Pareto uzroka zastoja")
@@ -3730,6 +3856,11 @@ elif aktivna_sekcija == "Grafički prikaz":
         st.plotly_chart(_dark_fig(fig, "Trend po danima"), use_container_width=True, config={"displayModeBar": False})
         prikazi_dark_dataframe(trend[["Datum_txt", "Realizacija", "NOK", "Stops_min"]].rename(columns={"Datum_txt": "Datum", "Stops_min": "Stops/min"}))
 
+        _render_process_graphics(df_filter, "STAMPING", "AIDA / STAMPING REALIZACIJA")
+        _render_process_graphics(df_filter, "ROTOR", "ROTOR LINIJE")
+        _render_process_graphics(df_filter, "WELDING", "WELDING LINIJE")
+        _render_process_graphics(df_filter, "DMC", "DMC LINIJE")
+
 elif aktivna_sekcija == "SCRAP":
     st.subheader("SCRAP")
     if df_ukupno_filter.empty:
@@ -3739,9 +3870,10 @@ elif aktivna_sekcija == "SCRAP":
         scrap["OK"] = scrap["OK_STATOR"] + scrap["OK_ROTOR"]
         scrap["NOK"] = scrap["NOK_STATOR"] + scrap["NOK_ROTOR"]
         scrap["Scrap %"] = scrap.apply(lambda r: procenat(r["NOK"], r["OK"] + r["NOK"]), axis=1)
-        fig = go.Figure(go.Bar(x=scrap["Proces"], y=scrap["NOK"], text=scrap["Scrap %"].apply(_fmt_pct_local), textposition="outside"))
+        fig = go.Figure(go.Bar(x=scrap["Proces"], y=scrap["NOK"], text=scrap["Scrap %"].apply(_fmt_pct_local), textposition="outside", marker_color="#ffb4ab"))
         st.plotly_chart(_dark_fig(fig, "NOK po procesu"), use_container_width=True, config={"displayModeBar": False})
         prikazi_dark_dataframe(scrap[["Proces", "OK", "NOK", "Scrap %"]])
+        _render_scrap_sections(df_ukupno_filter)
 
 elif aktivna_sekcija == "Top uzroci po mašini":
     st.subheader("Top uzroci po mašini")
