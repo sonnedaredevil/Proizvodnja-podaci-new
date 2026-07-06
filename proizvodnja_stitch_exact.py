@@ -2753,15 +2753,24 @@ st.markdown(
         max-width: 264px !important;
         background: var(--surface-low) !important;
         border-right: 1px solid var(--outline-variant) !important;
-        overflow-y: auto !important;
+        overflow: hidden !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
     }
 
     section[data-testid="stSidebar"] > div,
     section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-        overflow-y: auto !important;
-        height: 100vh !important;
-        max-height: 100vh !important;
+        overflow: hidden !important;
+        height: auto !important;
+        max-height: none !important;
         padding: 0 !important;
+    }
+
+    section[data-testid="stSidebar"]::-webkit-scrollbar,
+    section[data-testid="stSidebar"] > div::-webkit-scrollbar,
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"]::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
     }
 
     .sidebar-brand {
@@ -2847,6 +2856,16 @@ st.markdown(
         font-weight: 600 !important;
         letter-spacing: .04em !important;
         text-transform: uppercase !important;
+    }
+
+    .toolbar-mini-label {
+        color: var(--on-surface-variant) !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        letter-spacing: .04em !important;
+        text-transform: uppercase !important;
+        margin: 0 0 6px 2px !important;
+        line-height: 1 !important;
     }
 
     [data-testid="stFileUploader"] section {
@@ -3048,6 +3067,24 @@ def _safe_sum(df_obj, col):
     return pd.to_numeric(df_obj[col], errors="coerce").fillna(0).sum()
 
 
+def _summary_realization_sources(df_obj, selected_processes):
+    """Za gornje KPI kartice:
+    - ako je izabran tačno jedan proces, i stator i rotor realizacija se prikazuju za taj proces
+    - inače stator ide iz DMC, a rotor iz ROTOR (finalni procesi)
+    """
+    if df_obj is None or df_obj.empty:
+        return pd.DataFrame(), pd.DataFrame(), "DMC finalni proces", "ROTOR finalni proces"
+
+    if selected_processes and len(selected_processes) == 1:
+        proc = selected_processes[0]
+        filt = df_obj[df_obj["Proces"] == proc].copy()
+        return filt, filt, f"{proc} proces", f"{proc} proces"
+
+    df_stator = df_obj[df_obj["Proces"] == "DMC"].copy()
+    df_rotor = df_obj[df_obj["Proces"] == "ROTOR"].copy()
+    return df_stator, df_rotor, "DMC finalni proces", "ROTOR finalni proces"
+
+
 def _dark_fig(fig, title=None, height=420):
     fig.update_layout(
         title=dict(text=title or "", x=0.5, font=dict(size=22, color="#F8FAFC")),
@@ -3170,7 +3207,7 @@ sekcije = [
 
 st.sidebar.markdown("""
 <div class="sidebar-brand">
-  <div class="sidebar-brand-title">PROD-OPS</div>
+  <div class="sidebar-brand-title">Production monitoring</div>
   <div class="sidebar-brand-sub">Manufacturing Suite</div>
 </div>
 """, unsafe_allow_html=True)
@@ -3390,11 +3427,13 @@ if izabrani_procesi:
     df_za_masine = df_za_masine[df_za_masine["Proces"].isin(izabrani_procesi)]
 sve_masine = sorted(df_za_masine["Masina"].dropna().unique())
 with f4:
-    masina_filter = st.selectbox("Mašina", ["SVE"] + sve_masine, index=0)
+    st.markdown("<div class='toolbar-mini-label'>Mašina</div>", unsafe_allow_html=True)
+    masina_filter = st.selectbox("Mašina", ["SVE"] + sve_masine, index=0, label_visibility="collapsed")
 izabrane_masine = sve_masine if masina_filter == "SVE" else [masina_filter]
 
 with f5:
-    tip_grafikona = st.selectbox("Grafikon", ["Stubičasti", "Linijski", "Površinski"], index=0)
+    st.markdown("<div class='toolbar-mini-label'>Grafikon</div>", unsafe_allow_html=True)
+    tip_grafikona = st.selectbox("Grafikon", ["Stubičasti", "Linijski", "Površinski"], index=0, label_visibility="collapsed")
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
@@ -3440,11 +3479,12 @@ if st.session_state.get("overlay_slika") is not None:
     prikazi_overlay_sliku(st.session_state.overlay_slika["putanja"], st.session_state.overlay_slika["naslov"])
 
 # Globalni brzi KPI iznad sekcija.
+df_real_stator, df_real_rotor, stator_sub, rotor_sub = _summary_realization_sources(df_ukupno_filter, izabrani_procesi)
 col_a, col_b, col_c, col_d = st.columns(4)
 with col_a:
-    prikazi_metric_card("Realizacija STATOR", _fmt_num(_safe_sum(df_ukupno_filter[df_ukupno_filter.get("Proces", "") == "DMC"], "Realizacija_STATOR")), "gotov DMC proces", "")
+    prikazi_metric_card("Realizacija STATOR", _fmt_num(_safe_sum(df_real_stator, "Realizacija_STATOR")), stator_sub, "")
 with col_b:
-    prikazi_metric_card("Realizacija ROTOR", _fmt_num(_safe_sum(df_ukupno_filter[df_ukupno_filter.get("Proces", "") == "ROTOR"], "Realizacija_ROTOR")), "gotov ROTOR proces", "neo-card-green")
+    prikazi_metric_card("Realizacija ROTOR", _fmt_num(_safe_sum(df_real_rotor, "Realizacija_ROTOR")), rotor_sub, "neo-card-green")
 with col_c:
     prikazi_metric_card("Zastoji", f"{_fmt_num(_safe_sum(df_zastoji_filter, 'Minuta_iz_note'))} min", "po notes-ima", "neo-card-orange")
 with col_d:
@@ -3456,7 +3496,7 @@ with col_d:
 
 if aktivna_sekcija == "📊 Dnevni pregled":
     st.subheader("📌 Ukupan pregled proizvodnje")
-    st.caption("Finalna realizacija: STATOR iz DMC procesa, ROTOR iz ROTOR procesa. NOK ostaje iz svih procesa.")
+    st.caption("Ako je izabran tačno jedan proces, realizacija prati taj proces. U ostalim slučajevima STATOR ide iz DMC, a ROTOR iz ROTOR procesa. NOK ostaje iz svih procesa.")
 
     df_stator_gotov = df_ukupno_filter[df_ukupno_filter["Proces"] == "DMC"].copy()
     df_rotor_gotov = df_ukupno_filter[df_ukupno_filter["Proces"] == "ROTOR"].copy()
