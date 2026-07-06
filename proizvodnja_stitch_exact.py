@@ -3706,19 +3706,107 @@ def _top3_horizontal(df_source, group_filter_col, group_value, title):
 
 
 def _render_top_causes_by_process(dfz):
+    """Prikazuje za svaki proces:
+    1) jedan objedinjeni horizontalni grafikon sa top 3 zastoja za svaku mašinu
+    2) jedan vertikalni grafikon sa top 3 ukupna uzroka procesa
+    """
+    if dfz is None or dfz.empty:
+        st.info("Nema podataka za top 3 uzroka zastoja.")
+        return
+
     for proc in sorted(dfz["Proces"].dropna().unique()):
-        dp=dfz[dfz["Proces"]==proc]
+        dp = dfz[dfz["Proces"] == proc].copy()
+        if dp.empty:
+            continue
+
         st.markdown(f"## {proc}")
-        overall=dp.groupby("Razlog",as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note",ascending=False).head(3)
-        fig=go.Figure(go.Bar(x=overall["Minuta_iz_note"],y=overall["Razlog"],orientation="h",text=overall["Minuta_iz_note"].apply(_fmt_num),textposition="auto",marker_color="#ffb95f"))
-        fig.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(_dark_fig(fig,f"Top 3 uzroka ukupno — {proc}",height=320),use_container_width=True,config={"displayModeBar":False})
-        machines=sorted(dp["Masina"].dropna().unique())
-        for start in range(0,len(machines),3):
-            cols=st.columns(3)
-            for i,m in enumerate(machines[start:start+3]):
-                with cols[i]:
-                    _top3_horizontal(dp,"Masina",m,f"Top 3 — {m}")
+
+        # TOP 3 PO SVAKOJ MAŠINI — svi redovi na jednom horizontalnom grafikonu
+        top_machine_parts = []
+        for masina in sorted(dp["Masina"].dropna().unique()):
+            tm = (
+                dp[dp["Masina"] == masina]
+                .groupby("Razlog", as_index=False)["Minuta_iz_note"]
+                .sum()
+                .sort_values("Minuta_iz_note", ascending=False)
+                .head(3)
+            )
+            if tm.empty:
+                continue
+            tm["Masina"] = masina
+            tm["Oznaka"] = tm["Masina"].astype(str) + " — " + tm["Razlog"].astype(str)
+            top_machine_parts.append(tm)
+
+        if top_machine_parts:
+            top_machine = pd.concat(top_machine_parts, ignore_index=True)
+            # Zadrži grupisanje po mašini, a unutar mašine najveći uzrok prvi.
+            top_machine["Masina_order"] = pd.Categorical(
+                top_machine["Masina"],
+                categories=sorted(top_machine["Masina"].unique()),
+                ordered=True,
+            )
+            top_machine = top_machine.sort_values(
+                ["Masina_order", "Minuta_iz_note"], ascending=[True, True]
+            )
+
+            fig_machine = go.Figure(
+                go.Bar(
+                    x=top_machine["Minuta_iz_note"],
+                    y=top_machine["Oznaka"],
+                    orientation="h",
+                    text=top_machine["Minuta_iz_note"].apply(lambda v: f"{_fmt_num(v)} min"),
+                    textposition="outside",
+                    cliponaxis=False,
+                    marker=dict(
+                        color=top_machine["Minuta_iz_note"],
+                        colorscale="Turbo",
+                        showscale=False,
+                        line=dict(color="rgba(255,255,255,0.30)", width=1),
+                    ),
+                )
+            )
+            fig_machine.update_layout(
+                yaxis=dict(autorange="reversed", automargin=True),
+                xaxis=dict(title="Minuti zastoja"),
+                margin=dict(l=300, r=80, t=80, b=50),
+            )
+            st.plotly_chart(
+                _dark_fig(fig_machine, f"Top 3 zastoja po mašinama — {proc}", height=max(520, 42 * len(top_machine) + 120)),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
+
+        # TOP 3 UKUPNO ZA PROCES — vertikalni grafikon
+        overall = (
+            dp.groupby("Razlog", as_index=False)["Minuta_iz_note"]
+            .sum()
+            .sort_values("Minuta_iz_note", ascending=False)
+            .head(3)
+        )
+        if not overall.empty:
+            fig_overall = go.Figure(
+                go.Bar(
+                    x=overall["Razlog"],
+                    y=overall["Minuta_iz_note"],
+                    text=overall["Minuta_iz_note"].apply(lambda v: f"{_fmt_num(v)} min"),
+                    textposition="outside",
+                    cliponaxis=False,
+                    marker=dict(
+                        color=["#f44343", "#ff7417", "#4382ef"][:len(overall)],
+                        line=dict(color="rgba(255,255,255,0.25)", width=1),
+                    ),
+                )
+            )
+            fig_overall.update_layout(
+                xaxis=dict(title="", tickangle=-18, automargin=True),
+                yaxis=dict(title="Minuti zastoja"),
+                margin=dict(l=70, r=60, t=85, b=100),
+            )
+            st.plotly_chart(
+                _dark_fig(fig_overall, f"Top 3 ukupna uzroka zastoja — {proc}", height=500),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
 
 # ============================================================
 # SEKCIJE
@@ -3860,6 +3948,11 @@ elif aktivna_sekcija == "KPI":
     for proces in [p for p in KPI_PROCESI if p in df_ukupno_filter["Proces"].unique()]:
         with st.container():
             prikazi_gauge_dashboard(proces, df_ukupno_filter[df_ukupno_filter["Proces"] == proces])
+
+    st.markdown("### KPI po projektu")
+    for projekat in sorted(df_ukupno_filter["Projekat"].dropna().unique()):
+        with st.container():
+            prikazi_gauge_dashboard(projekat, df_ukupno_filter[df_ukupno_filter["Projekat"] == projekat])
 
 elif aktivna_sekcija == "Grafički prikaz":
     st.subheader("Grafički prikaz")
