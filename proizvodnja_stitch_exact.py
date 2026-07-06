@@ -3094,6 +3094,38 @@ st.markdown(
         overflow: visible !important;
     }
 
+    .cause-card {
+        background: var(--surface-container) !important;
+        border: 1px solid var(--outline-variant) !important;
+        border-left: 3px solid var(--primary) !important;
+        border-radius: 4px !important;
+        padding: 16px 18px !important;
+        margin: 0 0 14px 0 !important;
+        min-height: 0 !important;
+        height: auto !important;
+        box-sizing: border-box !important;
+    }
+    .cause-card.nok { border-left-color: var(--error) !important; }
+    .cause-card-title {
+        color: var(--on-surface) !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
+        margin-bottom: 12px !important;
+    }
+    .cause-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 0;
+        border-top: 1px dashed var(--outline-variant);
+        color: var(--on-surface-variant) !important;
+        font-size: 14px !important;
+        line-height: 1.3 !important;
+    }
+    .cause-row:first-of-type { border-top: 0; }
+    .cause-row b { color: var(--on-surface) !important; white-space: nowrap; }
+
     @media (max-width: 1024px) {
         section[data-testid="stSidebar"] {
             width: 230px !important;
@@ -4002,23 +4034,58 @@ elif aktivna_sekcija == "Top uzroci po mašini":
     else:
         masine = sorted(set(df_filter["Masina"].dropna().unique()))
         for masina in masine:
-            col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2, gap="large")
+
+            z = df_zastoji_filter[df_zastoji_filter["Masina"] == masina] if not df_zastoji_filter.empty else pd.DataFrame()
+            n = df_nok_filter[df_nok_filter["Masina"] == masina] if not df_nok_filter.empty else pd.DataFrame()
+
             with col1:
-                z = df_zastoji_filter[df_zastoji_filter["Masina"] == masina] if not df_zastoji_filter.empty else pd.DataFrame()
                 if not z.empty:
-                    topz = z.groupby("Razlog", as_index=False)["Minuta_iz_note"].sum().sort_values("Minuta_iz_note", ascending=False).head(3)
-                    st.markdown(f"<div class='neo-card'><div class='machine-title'>⏱️ {masina} — zastoji</div>", unsafe_allow_html=True)
-                    for _, r in topz.iterrows():
-                        st.markdown(f"<div class='reason-sub'>{_html_escape(r['Razlog'])}: <b>{_fmt_num(r['Minuta_iz_note'])} min</b></div>", unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    topz = (
+                        z.groupby("Razlog", as_index=False)["Minuta_iz_note"]
+                        .sum()
+                        .sort_values("Minuta_iz_note", ascending=False)
+                        .head(3)
+                    )
+                    rows = "".join(
+                        f"<div class='cause-row'><span>{_html_escape(r['Razlog'])}</span><b>{_fmt_num(r['Minuta_iz_note'])} min</b></div>"
+                        for _, r in topz.iterrows()
+                    )
+                    st.markdown(
+                        f"<div class='cause-card'><div class='cause-card-title'>{_html_escape(masina)} — zastoji</div>{rows}</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div class='cause-card'><div class='cause-card-title'>{_html_escape(masina)} — zastoji</div><div class='cause-row'><span>Nema podataka</span><b>0 min</b></div></div>",
+                        unsafe_allow_html=True,
+                    )
+
             with col2:
-                n = df_nok_filter[df_nok_filter["Masina"] == masina] if not df_nok_filter.empty else pd.DataFrame()
                 if not n.empty:
-                    topn = n.groupby("Razlog", as_index=False)["Komada_iz_note"].sum().sort_values("Komada_iz_note", ascending=False).head(3)
-                    st.markdown(f"<div class='neo-card neo-card-purple'><div class='machine-title'>❌ {masina} — NOK</div>", unsafe_allow_html=True)
-                    for _, r in topn.iterrows():
-                        st.markdown(f"<div class='reason-sub'>{_html_escape(r['Razlog'])}: <b>{_fmt_num(r['Komada_iz_note'])} kom</b></div>", unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    topn = (
+                        n.groupby("Razlog", as_index=False)["Komada_iz_note"]
+                        .sum()
+                        .sort_values("Komada_iz_note", ascending=False)
+                        .head(3)
+                    )
+                    rows = "".join(
+                        f"<div class='cause-row'><span>{_html_escape(r['Razlog'])}</span><b>{_fmt_num(r['Komada_iz_note'])} kom</b></div>"
+                        for _, r in topn.iterrows()
+                    )
+                    st.markdown(
+                        f"<div class='cause-card nok'><div class='cause-card-title'>{_html_escape(masina)} — NOK</div>{rows}</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div class='cause-card nok'><div class='cause-card-title'>{_html_escape(masina)} — NOK</div><div class='cause-row'><span>Nema podataka</span><b>0 kom</b></div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+        st.divider()
+        st.markdown("## Top 3 uzroka zastoja po procesu")
+        _render_top_causes_by_process(df_zastoji_filter)
 
 elif aktivna_sekcija == "Tabele":
     st.subheader("Tabele")
