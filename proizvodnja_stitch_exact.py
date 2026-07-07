@@ -4071,8 +4071,50 @@ if aktivna_sekcija == "Dnevni pregled":
             prikaz.loc[_pg, "OK_ROTOR"] = prikaz.loc[_pg, "Realizacija_ROTOR"]
 
         prikaz["Realizacija"] = prikaz["Realizacija_STATOR"] + prikaz["Realizacija_ROTOR"]
-        fig = go.Figure(go.Bar(x=prikaz["Proces"], y=prikaz["Realizacija"], text=prikaz["Realizacija"].apply(lambda x: f"{x:,.0f}".replace(",", ".")), textposition="outside"))
-        st.plotly_chart(_dark_fig(fig, "Realizacija po procesu"), use_container_width=True, config={"displayModeBar": False})
+
+        # Dva odvojena stubića po procesu: realizacija statora i realizacija rotora.
+        fig = go.Figure()
+        fig.add_trace(
+            go.Bar(
+                name="STATOR",
+                x=prikaz["Proces"],
+                y=prikaz["Realizacija_STATOR"],
+                text=prikaz["Realizacija_STATOR"].apply(
+                    lambda x: f"{x:,.0f}".replace(",", ".")
+                ),
+                textposition="outside",
+                hovertemplate="<b>%{x}</b><br>STATOR: %{y:,.0f}<extra></extra>",
+            )
+        )
+        fig.add_trace(
+            go.Bar(
+                name="ROTOR",
+                x=prikaz["Proces"],
+                y=prikaz["Realizacija_ROTOR"],
+                text=prikaz["Realizacija_ROTOR"].apply(
+                    lambda x: f"{x:,.0f}".replace(",", ".")
+                ),
+                textposition="outside",
+                hovertemplate="<b>%{x}</b><br>ROTOR: %{y:,.0f}<extra></extra>",
+            )
+        )
+        fig.update_layout(
+            barmode="group",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="left",
+                x=0,
+            ),
+            xaxis_title="",
+            yaxis_title="Komada",
+        )
+        st.plotly_chart(
+            _dark_fig(fig, "Realizacija po procesu — STATOR / ROTOR"),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
         prikazi_dark_dataframe(prikaz)
 
 elif aktivna_sekcija == "NOK razlozi":
