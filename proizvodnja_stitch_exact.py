@@ -102,32 +102,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown(
-    """
-    <div class="creator-signature">Kreirao: Nebojša Đakovački</div>
-    <style>
-    .creator-signature {
-        position: fixed;
-        left: 12px;
-        bottom: 8px;
-        z-index: 1000000;
-        padding: 4px 8px;
-        border-radius: 7px;
-        background: rgba(2, 6, 23, 0.72);
-        border: 1px solid rgba(148, 163, 184, 0.28);
-        color: #cbd5e1;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.2px;
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
-        pointer-events: none;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 # Naslov se prikazuje kasnije kroz prilagođeni HTML, centrirano.
 
 
@@ -852,14 +826,6 @@ def broj(vrednost):
         return float(vrednost)
     except Exception:
         return 0
-
-
-def zaokruzi_na_najblizi_ceo(vrednost):
-    """Zaokružuje pozitivnu vrednost na najbliži ceo broj (.5 ide naviše)."""
-    vrednost = broj(vrednost)
-    if vrednost <= 0:
-        return 0
-    return int(vrednost + 0.5)
 
 
 def procenat(deo, ukupno):
@@ -1908,9 +1874,8 @@ def ucitaj_sve_podatke(original_fajl):
             zapis["Work_time_min"] = zapis["Opening_time_min"] - zapis["Stops_min"]
 
             # Posebno privremeno pravilo za AIDA VITESKO:
-            # kolona G sadrži broj izrađenih statorskih lamela.
-            # Pretvaranje lamela u komade statora/rotora radi se niže,
-            # nakon što se učitaju i eventualne rotorske kolone.
+            # dok tabela nije sređena, koristi se samo kolona G kao realizacija,
+            # a notes analiza se i dalje radi iz smenskih kolona.
             if naziv_taba.upper() == "AIDA VITESKO":
                 zapis["Plan_STATOR"] = 0
                 zapis["Plan_ROTOR"] = 0
@@ -2103,16 +2068,6 @@ def ucitaj_sve_podatke(original_fajl):
 
             if broj(zapis.get("Realizacija_ROTOR")) == 0 and rotor_po_tipovima > 0:
                 zapis["Realizacija_ROTOR"] = rotor_po_tipovima
-
-            # VITESKO / STAMPING u Excelu vodi realizaciju kao broj lamela.
-            # Za prikaz gotovih komada: 602 lamele = 1 stator, 77 lamela = 1 rotor.
-            # Rezultat se zaokružuje na najbliži ceo broj.
-            if naziv_taba.upper() == "AIDA VITESKO":
-                stator_lamele = broj(zapis.get("Realizacija_STATOR"))
-                rotor_lamele = broj(zapis.get("Realizacija_ROTOR"))
-
-                zapis["Realizacija_STATOR"] = zaokruzi_na_najblizi_ceo(stator_lamele / 602)
-                zapis["Realizacija_ROTOR"] = zaokruzi_na_najblizi_ceo(rotor_lamele / 77)
 
             ok_stator = broj(zapis.get("OK_STATOR"))
             nok_stator = broj(zapis.get("NOK_STATOR"))
