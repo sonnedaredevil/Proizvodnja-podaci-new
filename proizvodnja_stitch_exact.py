@@ -102,6 +102,32 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+st.markdown(
+    """
+    <div class="creator-signature">Kreirao: Nebojša Đakovački · v12</div>
+    <style>
+    .creator-signature {
+        position: fixed;
+        left: 12px;
+        bottom: 8px;
+        z-index: 1000000;
+        padding: 4px 8px;
+        border-radius: 7px;
+        background: rgba(2, 6, 23, 0.72);
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        color: #cbd5e1;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        pointer-events: none;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # Naslov se prikazuje kasnije kroz prilagođeni HTML, centrirano.
 
 
@@ -433,13 +459,10 @@ preskoci_tabove = [
     "Annealing"
 ]
 
-iskljuci_iz_ukupnog_proracuna = [
-    "AIDA VITESKO",
-    "HEATING VITESCO STATOR",
-    "HEATING VITESCO ROTOR",
-    "DMC EMR4 STATOR",
-    "DMC EMR4 ROTOR",
-]
+# Sve VITESKO/EMR4 mašine ponovo učestvuju u ukupnim prikazima i KPI proračunima.
+# AIDA VITESKO (STAMPING) se pre sabiranja pretvara iz lamela u gotove komade:
+# 602 lamele = 1 stator, 77 lamela = 1 rotor.
+iskljuci_iz_ukupnog_proracuna = []
 
 dmc_stator_iz_smena_tabovi = [
     "DMC L1 APP550",
@@ -826,6 +849,20 @@ def broj(vrednost):
         return float(vrednost)
     except Exception:
         return 0
+
+
+def zaokruzi_na_najblizi_ceo(vrednost):
+    """Zaokružuje pozitivnu vrednost na najbliži ceo broj (.5 ide naviše)."""
+    vrednost = broj(vrednost)
+    if vrednost <= 0:
+        return 0
+    return int(vrednost + 0.5)
+
+
+def da_li_je_aida_vitesko(vrednost):
+    """Prepoznaje AIDA VITESKO/VITESCO bez obzira na razmake, crtice i pravopis."""
+    t = pojednostavi_naziv_za_mapiranje(vrednost)
+    return t.startswith("aida") and ("vitesko" in t or "vitesco" in t)
 
 
 def procenat(deo, ukupno):
@@ -1873,14 +1910,23 @@ def ucitaj_sve_podatke(original_fajl):
 
             zapis["Work_time_min"] = zapis["Opening_time_min"] - zapis["Stops_min"]
 
-            # Posebno privremeno pravilo za AIDA VITESKO:
-            # dok tabela nije sređena, koristi se samo kolona G kao realizacija,
-            # a notes analiza se i dalje radi iz smenskih kolona.
-            if naziv_taba.upper() == "AIDA VITESKO":
+            # Posebno pravilo za AIDA VITESKO / STAMPING.
+            # Generičko mapiranje iznad već pokušava da pronađe odvojene kolone
+            # realizacije STATOR i ROTOR. Te vrednosti su broj lamela, zato ih
+            # čuvamo u posebnim kolonama i NE prepisujemo rotor nulom.
+            # Kolona G ostaje samo rezervni izvor za statorske lamele ako naziv
+            # kolone u Excelu nije prepoznat.
+            if da_li_je_aida_vitesko(naziv_taba):
+                stator_lamele = broj(zapis.get("Realizacija_STATOR"))
+                rotor_lamele = broj(zapis.get("Realizacija_ROTOR"))
+
+                if stator_lamele == 0:
+                    stator_lamele = broj(ws.cell(row=red, column=7).value)
+
+                zapis["VITESKO_LAMELE_STATOR"] = stator_lamele
+                zapis["VITESKO_LAMELE_ROTOR"] = rotor_lamele
                 zapis["Plan_STATOR"] = 0
                 zapis["Plan_ROTOR"] = 0
-                zapis["Realizacija_STATOR"] = broj(ws.cell(row=red, column=7).value)
-                zapis["Realizacija_ROTOR"] = 0
                 zapis["OK_STATOR"] = 0
                 zapis["OK_ROTOR"] = 0
                 zapis["NOK_STATOR"] = 0
@@ -2068,6 +2114,22 @@ def ucitaj_sve_podatke(original_fajl):
 
             if broj(zapis.get("Realizacija_ROTOR")) == 0 and rotor_po_tipovima > 0:
                 zapis["Realizacija_ROTOR"] = rotor_po_tipovima
+
+            # VITESKO / STAMPING u Excelu vodi realizaciju kao broj lamela.
+            # Za prikaz gotovih komada: 602 lamele = 1 stator, 77 lamela = 1 rotor.
+            # Rezultat se zaokružuje na najbliži ceo broj.
+            if da_li_je_aida_vitesko(naziv_taba):
+                stator_lamele = broj(zapis.get("VITESKO_LAMELE_STATOR"))
+                rotor_lamele = broj(zapis.get("VITESKO_LAMELE_ROTOR"))
+
+                zapis["Realizacija_STATOR"] = zaokruzi_na_najblizi_ceo(stator_lamele / 602)
+                zapis["Realizacija_ROTOR"] = zaokruzi_na_najblizi_ceo(rotor_lamele / 77)
+
+                # Na STAMPING procesu nema posebnih OK kolona za VITESKO.
+                # Zato se preračunati gotovi komadi koriste i za OK kartice.
+                zapis["OK_STATOR"] = zapis["Realizacija_STATOR"]
+                zapis["OK_ROTOR"] = zapis["Realizacija_ROTOR"]
+                zapis["VITESKO_STAMPING_PRETVORENO"] = 1
 
             ok_stator = broj(zapis.get("OK_STATOR"))
             nok_stator = broj(zapis.get("NOK_STATOR"))
@@ -3165,14 +3227,28 @@ def _safe_sum(df_obj, col):
 
 def _summary_realization_sources(df_obj, selected_processes):
     """Za gornje KPI kartice:
-    - ako je izabran tačno jedan proces, i stator i rotor realizacija se prikazuju za taj proces
+    - ako je izabran tačno jedan proces, prikazuje taj proces
+    - ako filter formalno sadrži više procesa, ali filtrirani podaci imaju samo jedan,
+      prikazuje taj jedini stvarno prisutan proces
     - inače stator ide iz DMC, a rotor iz ROTOR (finalni procesi)
     """
     if df_obj is None or df_obj.empty:
-        return pd.DataFrame(), pd.DataFrame(), "DMC finalni proces", "ROTOR finalni proces"
+        return pd.DataFrame(), pd.DataFrame(), "Nema podataka", "Nema podataka"
+
+    efektivni_procesi = []
+    if "Proces" in df_obj.columns:
+        efektivni_procesi = [
+            p for p in df_obj["Proces"].dropna().astype(str).unique().tolist()
+            if p and p != "NEMAPIRANO"
+        ]
 
     if selected_processes and len(selected_processes) == 1:
         proc = selected_processes[0]
+        filt = df_obj[df_obj["Proces"] == proc].copy()
+        return filt, filt, f"{proc} proces", f"{proc} proces"
+
+    if len(efektivni_procesi) == 1:
+        proc = efektivni_procesi[0]
         filt = df_obj[df_obj["Proces"] == proc].copy()
         return filt, filt, f"{proc} proces", f"{proc} proces"
 
@@ -3358,6 +3434,51 @@ if df.empty:
 # Projekat/proces + eliminacija teksta NEMAPIRANO iz prikaza.
 df["Projekat"] = df["Masina"].apply(projekat_iz_masine)
 df["Proces"] = df["Masina"].apply(proces_iz_masine)
+
+# Završna, idempotentna VITESKO konverzija.
+# Radi se prema stvarnom projektu/procesu, ne samo prema nazivu mašine,
+# pa AIDA VITESKO sigurno ulazi u STAMPING prikaz. Kada postoje sačuvane
+# sirove lamele, komadi se uvek ponovo računaju iz njih.
+_mask_vitesko_svi = (
+    df["Projekat"].astype(str).eq("VITESKO EMR4")
+    & df["Proces"].astype(str).eq("STAMPING")
+)
+
+if "VITESKO_LAMELE_STATOR" in df.columns:
+    _raw_stator = pd.to_numeric(df["VITESKO_LAMELE_STATOR"], errors="coerce")
+else:
+    _raw_stator = pd.Series(index=df.index, dtype="float64")
+
+if "VITESKO_LAMELE_ROTOR" in df.columns:
+    _raw_rotor = pd.to_numeric(df["VITESKO_LAMELE_ROTOR"], errors="coerce")
+else:
+    _raw_rotor = pd.Series(index=df.index, dtype="float64")
+
+# Rezervna podrška za stare keširane podatke bez raw kolona: velike vrednosti
+# na VITESKO STAMPING-u tretiraju se kao lamele. Već pretvorene male vrednosti
+# se ne dele ponovo.
+_current_stator = pd.to_numeric(df["Realizacija_STATOR"], errors="coerce").fillna(0)
+_current_rotor = pd.to_numeric(df["Realizacija_ROTOR"], errors="coerce").fillna(0)
+_raw_stator = _raw_stator.where(_raw_stator.notna(), _current_stator.where(_current_stator > 5000))
+_raw_rotor = _raw_rotor.where(_raw_rotor.notna(), _current_rotor.where(_current_rotor > 5000))
+
+_mask_stator_raw = _mask_vitesko_svi & _raw_stator.notna()
+_mask_rotor_raw = _mask_vitesko_svi & _raw_rotor.notna()
+
+df.loc[_mask_stator_raw, "Realizacija_STATOR"] = (
+    _raw_stator.loc[_mask_stator_raw].div(602).apply(zaokruzi_na_najblizi_ceo)
+)
+df.loc[_mask_rotor_raw, "Realizacija_ROTOR"] = (
+    _raw_rotor.loc[_mask_rotor_raw].div(77).apply(zaokruzi_na_najblizi_ceo)
+)
+
+df.loc[_mask_vitesko_svi, "OK_STATOR"] = pd.to_numeric(
+    df.loc[_mask_vitesko_svi, "Realizacija_STATOR"], errors="coerce"
+).fillna(0)
+df.loc[_mask_vitesko_svi, "OK_ROTOR"] = pd.to_numeric(
+    df.loc[_mask_vitesko_svi, "Realizacija_ROTOR"], errors="coerce"
+).fillna(0)
+
 df = obrisi_nemapirano(df)
 
 if not df_nok.empty:
@@ -3546,7 +3667,56 @@ if izabrani_procesi:
 if izabrane_masine:
     df_filter = df_filter[df_filter["Masina"].isin(izabrane_masine)]
 
+# TVRDA ZAVRŠNA KONVERZIJA ZA AIDA VITESKO / STAMPING.
+# Ne zavisi od pomoćnih raw kolona niti od Streamlit keša. Ako je u
+# realizaciji ostao broj lamela, neposredno pre svih kartica i grafikona
+# pretvara se u gotove komade. Već pretvorene male vrednosti se ne dele ponovo.
+_vitesko_stamping_filter = (
+    df_filter["Projekat"].astype(str).str.upper().eq("VITESKO EMR4")
+    & df_filter["Proces"].astype(str).str.upper().eq("STAMPING")
+)
+if _vitesko_stamping_filter.any():
+    _vs = pd.to_numeric(df_filter.loc[_vitesko_stamping_filter, "Realizacija_STATOR"], errors="coerce").fillna(0)
+    _vr = pd.to_numeric(df_filter.loc[_vitesko_stamping_filter, "Realizacija_ROTOR"], errors="coerce").fillna(0)
+
+    _vs_lamele = _vs > 5000
+    _vr_lamele = _vr > 5000
+
+    if _vs_lamele.any():
+        _idx = _vs.index[_vs_lamele]
+        df_filter.loc[_idx, "Realizacija_STATOR"] = _vs.loc[_idx].div(602).apply(zaokruzi_na_najblizi_ceo)
+    if _vr_lamele.any():
+        _idx = _vr.index[_vr_lamele]
+        df_filter.loc[_idx, "Realizacija_ROTOR"] = _vr.loc[_idx].div(77).apply(zaokruzi_na_najblizi_ceo)
+
+    df_filter.loc[_vitesko_stamping_filter, "OK_STATOR"] = df_filter.loc[_vitesko_stamping_filter, "Realizacija_STATOR"]
+    df_filter.loc[_vitesko_stamping_filter, "OK_ROTOR"] = df_filter.loc[_vitesko_stamping_filter, "Realizacija_ROTOR"]
+
 df_ukupno_filter = df_filter[~df_filter["Masina"].isin(iskljuci_iz_ukupnog_proracuna)].copy()
+
+# Poslednja zaštita neposredno pre kartica i grafikona.
+# Time ni jedan kasniji prikaz ne može da koristi broj lamela umesto komada.
+_vit_stamp = (
+    df_ukupno_filter["Projekat"].astype(str).eq("VITESKO EMR4")
+    & df_ukupno_filter["Proces"].astype(str).eq("STAMPING")
+)
+if _vit_stamp.any():
+    if "VITESKO_LAMELE_STATOR" in df_ukupno_filter.columns:
+        _ls = pd.to_numeric(df_ukupno_filter.loc[_vit_stamp, "VITESKO_LAMELE_STATOR"], errors="coerce")
+        _valid = _ls.notna()
+        df_ukupno_filter.loc[_ls.index[_valid], "Realizacija_STATOR"] = _ls[_valid].div(602).apply(zaokruzi_na_najblizi_ceo)
+    if "VITESKO_LAMELE_ROTOR" in df_ukupno_filter.columns:
+        _lr = pd.to_numeric(df_ukupno_filter.loc[_vit_stamp, "VITESKO_LAMELE_ROTOR"], errors="coerce")
+        _valid = _lr.notna()
+        df_ukupno_filter.loc[_lr.index[_valid], "Realizacija_ROTOR"] = _lr[_valid].div(77).apply(zaokruzi_na_najblizi_ceo)
+    df_ukupno_filter.loc[_vit_stamp, "OK_STATOR"] = df_ukupno_filter.loc[_vit_stamp, "Realizacija_STATOR"]
+    df_ukupno_filter.loc[_vit_stamp, "OK_ROTOR"] = df_ukupno_filter.loc[_vit_stamp, "Realizacija_ROTOR"]
+
+# Grafikon koristi df_filter, zato iste konačne vrednosti vraćamo i u njega.
+if _vit_stamp.any():
+    _idx = df_ukupno_filter.index[_vit_stamp]
+    for _col in ["Realizacija_STATOR", "Realizacija_ROTOR", "OK_STATOR", "OK_ROTOR"]:
+        df_filter.loc[_idx, _col] = df_ukupno_filter.loc[_idx, _col]
 
 df_nok_filter = finalno_ocisti_df_razloge(df_nok.copy())
 df_zastoji_filter = finalno_ocisti_df_razloge(df_zastoji.copy())
@@ -3848,23 +4018,58 @@ if aktivna_sekcija == "Dnevni pregled":
     st.subheader("📌 Ukupan pregled proizvodnje")
     st.caption("Ako je izabran tačno jedan proces, realizacija prati taj proces. U ostalim slučajevima STATOR ide iz DMC, a ROTOR iz ROTOR procesa. NOK ostaje iz svih procesa.")
 
-    df_stator_gotov = df_ukupno_filter[df_ukupno_filter["Proces"] == "DMC"].copy()
-    df_rotor_gotov = df_ukupno_filter[df_ukupno_filter["Proces"] == "ROTOR"].copy()
+    df_stator_gotov, df_rotor_gotov, stator_sub, rotor_sub = _summary_realization_sources(
+        df_ukupno_filter,
+        izabrani_procesi
+    )
+
+    # Kada je izabran tačno jedan proces, kartice prikazuju realizaciju tog procesa.
+    # Ovo je neophodno za STAMPING, gde OK kolone uglavnom ne postoje.
+    efektivni_procesi_kartice = [] if df_ukupno_filter.empty else [
+        p for p in df_ukupno_filter["Proces"].dropna().astype(str).unique().tolist()
+        if p and p != "NEMAPIRANO"
+    ]
+    jedan_proces = (
+        bool(izabrani_procesi and len(izabrani_procesi) == 1)
+        or len(efektivni_procesi_kartice) == 1
+    )
+    stator_kolona_kartice = "Realizacija_STATOR" if jedan_proces else "OK_STATOR"
+    rotor_kolona_kartice = "Realizacija_ROTOR" if jedan_proces else "OK_ROTOR"
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        prikazi_metric_card("OK STATOR", _fmt_num(_safe_sum(df_stator_gotov, "OK_STATOR")), "DMC finalni proces")
+        prikazi_metric_card("OK STATOR", _fmt_num(_safe_sum(df_stator_gotov, stator_kolona_kartice)), stator_sub)
     with c2:
-        prikazi_metric_card("OK ROTOR", _fmt_num(_safe_sum(df_rotor_gotov, "OK_ROTOR")), "ROTOR finalni proces", "neo-card-green")
+        prikazi_metric_card("OK ROTOR", _fmt_num(_safe_sum(df_rotor_gotov, rotor_kolona_kartice)), rotor_sub, "neo-card-green")
     with c3:
         prikazi_metric_card("NOK STATOR", _fmt_num(_safe_sum(df_ukupno_filter, "NOK_STATOR")), "svi procesi", "neo-card-orange")
     with c4:
         prikazi_metric_card("NOK ROTOR", _fmt_num(_safe_sum(df_ukupno_filter, "NOK_ROTOR")), "svi procesi", "neo-card-purple")
 
-    if not df_filter.empty:
-        prikaz = df_filter.groupby(["Projekat", "Proces"], as_index=False).agg({
+    if not df_ukupno_filter.empty:
+        prikaz = df_ukupno_filter.groupby(["Projekat", "Proces"], as_index=False).agg({
             "Realizacija_STATOR": "sum", "Realizacija_ROTOR": "sum", "OK_STATOR": "sum", "OK_ROTOR": "sum", "NOK_STATOR": "sum", "NOK_ROTOR": "sum", "Stops_min": "sum"
         })
+
+        # Poslednja apsolutna zaštita na već grupisanim podacima.
+        # Ako bi iz bilo kog razloga u grupu ipak stigle lamele, grafikon
+        # ih ovde pretvara u komade pre računanja ukupne realizacije.
+        _pg = (
+            prikaz["Projekat"].astype(str).str.upper().eq("VITESKO EMR4")
+            & prikaz["Proces"].astype(str).str.upper().eq("STAMPING")
+        )
+        if _pg.any():
+            _pgs = pd.to_numeric(prikaz.loc[_pg, "Realizacija_STATOR"], errors="coerce").fillna(0)
+            _pgr = pd.to_numeric(prikaz.loc[_pg, "Realizacija_ROTOR"], errors="coerce").fillna(0)
+            _idxs = _pgs.index[_pgs > 5000]
+            _idxr = _pgr.index[_pgr > 5000]
+            if len(_idxs):
+                prikaz.loc[_idxs, "Realizacija_STATOR"] = _pgs.loc[_idxs].div(602).apply(zaokruzi_na_najblizi_ceo)
+            if len(_idxr):
+                prikaz.loc[_idxr, "Realizacija_ROTOR"] = _pgr.loc[_idxr].div(77).apply(zaokruzi_na_najblizi_ceo)
+            prikaz.loc[_pg, "OK_STATOR"] = prikaz.loc[_pg, "Realizacija_STATOR"]
+            prikaz.loc[_pg, "OK_ROTOR"] = prikaz.loc[_pg, "Realizacija_ROTOR"]
+
         prikaz["Realizacija"] = prikaz["Realizacija_STATOR"] + prikaz["Realizacija_ROTOR"]
         fig = go.Figure(go.Bar(x=prikaz["Proces"], y=prikaz["Realizacija"], text=prikaz["Realizacija"].apply(lambda x: f"{x:,.0f}".replace(",", ".")), textposition="outside"))
         st.plotly_chart(_dark_fig(fig, "Realizacija po procesu"), use_container_width=True, config={"displayModeBar": False})
