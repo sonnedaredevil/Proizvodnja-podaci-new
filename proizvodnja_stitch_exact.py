@@ -474,6 +474,7 @@ dmc_stator_iz_smena_tabovi = [
     "DMC L4 APP550",
     "DMC L4 GP12",
     "DMC L5 APP550",
+    "DMC L1 APP350",
     "DMC L2 APP350",
     "DMC L3 APP350",
     "DMC L4 APP350",
