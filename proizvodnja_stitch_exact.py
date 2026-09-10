@@ -814,6 +814,10 @@ def ocisti_note(note):
         "operacije",
         "Operacije",
         "OPERACIJE",
+        "Vanja Đokić",
+        "Vanja Djokić",
+        "Vanja Đokic",
+        "Vanja Djokic",
     ]
 
     for pojam in ignorisi_pojmove:
