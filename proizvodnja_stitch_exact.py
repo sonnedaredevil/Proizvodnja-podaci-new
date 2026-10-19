@@ -25,6 +25,7 @@ RECI_KOJE_SE_BRISU_IZ_RAZLOGA = [
     "zeljko",
     "spasojević",
     "spasojevic",
+    "radivojev",
 ]
 
 def finalno_ocisti_razlog_od_imena(vrednost):
@@ -811,6 +812,7 @@ def ocisti_note(note):
         "Željko Spasojevic",
         "Zeljko Spasojević",
         "Zeljko Spasojevic",
+        "Radivojev",
         "operacije",
         "Operacije",
         "OPERACIJE",
